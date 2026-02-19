@@ -14,8 +14,8 @@ async def get_dashboard_summary(
     tenant_id = getattr(current_user, "tenant_id", "default_tenant") or "default_tenant"
     
     revenue_data = await get_revenue_summary(property_id, tenant_id)
-    
-    total_revenue_float = float(revenue_data['total'])
+    # the solution is to just keep stirng in the backend and keep the transtion in the frontend 
+    total_revenue_float = str(revenue_data['total'])
     
     return {
         "property_id": revenue_data['property_id'],

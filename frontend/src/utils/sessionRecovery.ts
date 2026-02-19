@@ -20,12 +20,51 @@ export class SessionRecovery {
     }
     return SessionRecovery.instance;
   }
+
+  // FIX: Safe getter for Supabase URL with validation
+  private getSupabaseUrl(): string | null {
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    if (!url || typeof url !== 'string') {
+      console.error('[SessionRecovery] VITE_SUPABASE_URL is not defined or invalid');
+      return null;
+    }
+    return url;
+  }
+
+  // FIX: Safe storage key generator
+  private getStorageKey(): string | null {
+    const supabaseUrl = this.getSupabaseUrl();
+    if (!supabaseUrl) return null;
+    
+    try {
+      // Guard against malformed URLs
+      if (!supabaseUrl.includes('//')) {
+        console.error('[SessionRecovery] Invalid Supabase URL format');
+        return null;
+      }
+      const keyPart = supabaseUrl.split('//')[1]?.split('.')[0];
+      if (!keyPart) {
+        console.error('[SessionRecovery] Could not extract storage key from URL');
+        return null;
+      }
+      return `sb-${keyPart}-auth-token`;
+    } catch (error) {
+      console.error('[SessionRecovery] Failed to generate storage key:', error);
+      return null;
+    }
+  }
   
   /**
    * Attempts to recover a session from localStorage
    * This should be called on app initialization before any auth checks
    */
   async recoverSession(): Promise<Session | null> {
+    // FIX: Check for required env var early
+    if (!this.getSupabaseUrl()) {
+      console.error('[SessionRecovery] Cannot recover session - VITE_SUPABASE_URL missing');
+      return null;
+    }
+
     if (typeof window !== 'undefined' && (window as any).__isLoggingOut) {
       console.log('[SessionRecovery] Skipping recovery - logout in progress');
       return null;
@@ -110,8 +149,13 @@ export class SessionRecovery {
       // If no session found, check localStorage directly as a fallback
       console.log('[SessionRecovery] No session from getSession, checking localStorage directly...');
       
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const storageKey = `sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`;
+      // FIX: Use safe storage key getter
+      const storageKey = this.getStorageKey();
+      if (!storageKey) {
+        console.error('[SessionRecovery] Cannot check localStorage - storage key unavailable');
+        return null;
+      }
+      
       const storedData = localStorage.getItem(storageKey);
       
       if (storedData) {
@@ -170,8 +214,13 @@ export class SessionRecovery {
    */
   clearStoredSession(): void {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const storageKey = `sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`;
+      // FIX: Use safe storage key getter
+      const storageKey = this.getStorageKey();
+      if (!storageKey) {
+        console.error('[SessionRecovery] Cannot clear session - storage key unavailable');
+        return;
+      }
+      
       localStorage.removeItem(storageKey);
       console.log('[SessionRecovery] Stored session cleared');
     } catch (error) {
@@ -184,6 +233,12 @@ export class SessionRecovery {
    * Returns user object wrapped for compatibility with legacy code
    */
   async tryRecover(): Promise<{ user: any } | null> {
+    // FIX: Check for required env var early
+    if (!this.getSupabaseUrl()) {
+      console.error('[SessionRecovery] Cannot tryRecover - VITE_SUPABASE_URL missing');
+      return null;
+    }
+
     if (typeof window !== 'undefined' && (window as any).__isLoggingOut) {
       console.log('[SessionRecovery] Skipping tryRecover - logout in progress');
       return null;

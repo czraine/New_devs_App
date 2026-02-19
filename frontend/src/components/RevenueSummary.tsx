@@ -61,7 +61,12 @@ export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId = 'pr
     if (error) return <div className="p-4 text-red-500 bg-red-50 rounded-lg">{error}</div>;
     if (!data) return null;
 
-    const displayTotal = Math.round(data.total_revenue * 100) / 100;
+    // BUG FIX (A1): backend now returns total_revenue as a string to preserve NUMERIC(10,3)
+    // precision. Using Math.round(str * 100) / 100 re-introduces float rounding errors
+    // (e.g. "333.333" * 100 = 33333.299999... in IEEE-754). parseFloat converts the string
+    // directly to a JS number without the extra multiply/round/divide chain, and toLocaleString
+    // with maximumFractionDigits:2 handles display rounding correctly.
+    const displayTotal = parseFloat(data.total_revenue);
 
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-300">

@@ -104,18 +104,20 @@ class LocalAuthClient {
 
       this.saveSession(session);
 
+      // BUG FIX (O2): wrap the return value in { data: { user, session }, error } to match
+      // the real Supabase shape. AuthContext.signIn destructures as `const { data, error } =
+      // await supabase.auth.signInWithPassword(...)` and then reads `data.session`. With the
+      // old flat shape { user, session, error }, `data` was undefined and crashed on every login.
       return {
-        user: data.user,
-        session: session,
+        data: { user: data.user, session },
         error: null,
-      };
+      } as any;
     } catch (error: any) {
       console.error('[LocalAuth] Sign in failed:', error);
       return {
-        user: null,
-        session: null,
+        data: { user: null, session: null },
         error: error,
-      };
+      } as any;
     }
   }
 
@@ -157,13 +159,26 @@ class LocalAuthClient {
 
         if (response.ok) {
           return { data: { session: this.session } };
-        } else {
-          // Session invalid, clear it
+        } else if (response.status === 401 || response.status === 403) {
+          // BUG FIX (O3): only clear the session when the server explicitly rejects the
+          // token (401/403). Previously ANY error — including a network timeout or a 500 —
+          // called saveSession(null), wiping the stored token and triggering SIGNED_OUT.
+          // That made a page reload during a momentary backend hiccup look like a logout,
+          // sending the user back to /login even though their token was still valid.
+          console.warn('[LocalAuth] Token rejected by server, clearing session');
           this.saveSession(null);
+        } else {
+          // Server error (5xx) or unexpected status — preserve the session and return it
+          // so the app stays authenticated while the backend recovers.
+          console.warn(`[LocalAuth] Session validation returned ${response.status} - keeping stored session`);
+          return { data: { session: this.session } };
         }
       } catch (error) {
-        console.warn('[LocalAuth] Session validation failed:', error);
-        this.saveSession(null);
+        // BUG FIX (O3): network errors (fetch threw) must NOT wipe the session.
+        // Previously saveSession(null) here caused the same reload-to-login problem
+        // whenever the backend was temporarily unreachable.
+        console.warn('[LocalAuth] Session validation network error - keeping stored session:', error);
+        return { data: { session: this.session } };
       }
     }
 

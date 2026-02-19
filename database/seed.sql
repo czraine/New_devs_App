@@ -24,7 +24,7 @@ INSERT INTO reservations (id, property_id, tenant_id, check_in_date, check_out_d
     ('res-dec-1', 'prop-001', 'tenant-a', '2024-03-15 10:00:00+00', '2024-03-18 10:00:00+00', 333.333),
     ('res-dec-2', 'prop-001', 'tenant-a', '2024-03-16 10:00:00+00', '2024-03-19 10:00:00+00', 333.333),
     ('res-dec-3', 'prop-001', 'tenant-a', '2024-03-17 10:00:00+00', '2024-03-20 10:00:00+00', 333.334),
-    
+    -- the total should be 2250 isntead 
     -- prop-002: City Apartment Downtown (tenant-a) - High-value urban property
     ('res-004', 'prop-002', 'tenant-a', '2024-03-05 14:00:00+00', '2024-03-08 11:00:00+00', 1250.00),
     ('res-005', 'prop-002', 'tenant-a', '2024-03-12 16:00:00+00', '2024-03-15 10:00:00+00', 1475.50),
@@ -34,7 +34,8 @@ INSERT INTO reservations (id, property_id, tenant_id, check_in_date, check_out_d
     -- prop-003: Country Villa Estate (tenant-a) - Luxury property with highest rates
     ('res-008', 'prop-003', 'tenant-a', '2024-03-02 15:00:00+00', '2024-03-09 12:00:00+00', 2850.00),
     ('res-009', 'prop-003', 'tenant-a', '2024-03-18 16:00:00+00', '2024-03-25 11:00:00+00', 3250.50),
-    
+
+    -- the Sunset Properties shouldn't be able to see those two same goes for client b 
     -- prop-004: Lakeside Cottage (tenant-b) - Mid-range seasonal property  
     ('res-010', 'prop-004', 'tenant-b', '2024-03-08 18:00:00+00', '2024-03-11 15:00:00+00', 420.00),
     ('res-011', 'prop-004', 'tenant-b', '2024-03-14 17:00:00+00', '2024-03-18 14:00:00+00', 560.75),

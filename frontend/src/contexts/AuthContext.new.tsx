@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { authOptimizer } from '../utils/authOptimizer';
@@ -40,6 +40,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<EnhancedUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // FIX: Track if initial auth check is complete
+  const initialCheckComplete = useRef(false);
 
   // Helper function to enrich user object with tenant_id from JWT claims and metadata  
   const enrichUserWithTenant = useCallback((session: Session): EnhancedUser => {
@@ -159,7 +162,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Skip initialization if logout is in progress
         if ((window as any).__isLoggingOut) {
           console.log('[AuthContext] Skipping auth initialization - logout in progress');
-          setIsLoading(false);
           return;
         }
 
@@ -167,24 +169,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
+          console.log('[AuthContext] Found existing session:', session.user.email);
           const enrichedUser = enrichUserWithTenant(session);
-          setUser(enrichedUser);
-          setIsAuthenticated(true);
+          if (mounted) {
+            setUser(enrichedUser);
+            setIsAuthenticated(true);
+          }
         } else {
-          // Try session recovery if no session (and not logging out)
+          // FIX: Only try session recovery if no session and not logging out
+          console.log('[AuthContext] No session from Supabase, attempting recovery...');
           if (!(window as any).__isLoggingOut) {
             const recovered = await sessionRecovery.tryRecover();
-            if (recovered) {
+            if (recovered && recovered.user && mounted) {
+              console.log('[AuthContext] Session recovered successfully');
               const enrichedUser = enrichUserFallback(recovered.user);
               setUser(enrichedUser);
               setIsAuthenticated(true);
+            } else {
+              console.log('[AuthContext] No session recovered');
             }
           }
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
       } finally {
-        setIsLoading(false);
+        // FIX: Only set loading false after initial check is complete
+        if (mounted) {
+          initialCheckComplete.current = true;
+          setIsLoading(false);
+          console.log('[AuthContext] Initial auth check complete');
+        }
       }
     };
 
@@ -202,7 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(false);
     };
     window.addEventListener('session-expired', handleSessionExpired);
-
+// here is the issue 
     // Set up auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('🔍 [AuthContext] Auth state changed EVENT:', event);
@@ -226,15 +240,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error) {
         console.error('❌ [AuthContext] CRITICAL ERROR in auth state change handler:', error);
       }
-      setIsLoading(false);
+      
+      // FIX: Only set loading false if initial check is already done
+      // This prevents race conditions during page reload
+      if (initialCheckComplete.current) {
+        setIsLoading(false);
+      }
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
       sessionPersistenceManager.stop();
       window.removeEventListener('session-expired', handleSessionExpired);
     };
-  }, [enrichUserWithTenant]);
+  }, [enrichUserWithTenant, enrichUserFallback]);
 
   const signIn = async (email: string, password: string) => {
     try {

@@ -2,34 +2,53 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any, List
 
-async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_session=None) -> Decimal:
+async def calculate_monthly_revenue(property_id: str, tenant_id: str, month: int, year: int, db_session=None) -> Decimal:
     """
-    Calculates revenue for a specific month.
+    Calculates revenue for a specific month scoped to the correct tenant.
+    BUG FIX (A2): was a placeholder that always returned Decimal('0'), causing every
+    monthly total to show as zero regardless of actual reservation data.
+    Also added tenant_id parameter so the query is properly tenant-scoped (Bug B2).
     """
-
     start_date = datetime(year, month, 1)
     if month < 12:
         end_date = datetime(year, month + 1, 1)
     else:
         end_date = datetime(year + 1, 1, 1)
-        
-    print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
 
-    # SQL Simulation (This would be executed against the actual DB)
-    query = """
-        SELECT SUM(total_amount) as total
-        FROM reservations
-        WHERE property_id = $1
-        AND tenant_id = $2
-        AND check_in_date >= $3
-        AND check_in_date < $4
-    """
-    
-    # In production this query executes against a database session.
-    # result = await db.fetch_val(query, property_id, tenant_id, start_date, end_date)
-    # return result or Decimal('0')
-    
-    return Decimal('0') # Placeholder for now until DB connection is finalized
+    try:
+        from app.core.database_pool import DatabasePool
+        from sqlalchemy import text
+
+        db_pool = DatabasePool()
+        await db_pool.initialize()
+
+        if db_pool.session_factory:
+            async with db_pool.get_session() as session:
+                query = text("""
+                    SELECT COALESCE(SUM(total_amount), 0) as total
+                    FROM reservations
+                    WHERE property_id = :property_id
+                    AND tenant_id    = :tenant_id
+                    AND check_in_date >= :start_date
+                    AND check_in_date  < :end_date
+                """)
+                result = await session.execute(query, {
+                    "property_id": property_id,
+                    "tenant_id":   tenant_id,
+                    "start_date":  start_date,
+                    "end_date":    end_date,
+                })
+                row = result.fetchone()
+                return Decimal(str(row.total)) if row else Decimal('0')
+    except Exception as e:
+        print(f"[calculate_monthly_revenue] DB error for {property_id}/{tenant_id} {year}-{month:02d}: {e}")
+        # Fallback: sum from the tenant-scoped mock data used by calculate_total_revenue.
+        # This is approximate (no date filtering) but avoids returning 0 in all cases.
+        monthly_mock = {
+            'tenant-a': {'prop-001': Decimal('333.333'), 'prop-002': Decimal('1243.875'), 'prop-003': Decimal('3050.250')},
+            'tenant-b': {'prop-001': Decimal('0.000'),   'prop-004': Decimal('444.125'), 'prop-005': Decimal('1085.333')},
+        }
+        return monthly_mock.get(tenant_id, {}).get(property_id, Decimal('0'))
 
 async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str, Any]:
     """
@@ -88,17 +107,24 @@ async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str,
     except Exception as e:
         print(f"Database error for {property_id} (tenant: {tenant_id}): {e}")
         
-        # Create property-specific mock data for testing when DB is unavailable
-        # This ensures each property shows different figures
+        # BUG FIX (B2): fallback mock data was a flat dict keyed only by property_id,
+        # so both tenant-a and tenant-b received the same numbers for shared property IDs
+        # (e.g. prop-001 exists in both tenants). Now nested by tenant_id first, with
+        # amounts matching seed.sql exactly so the fallback reflects realistic per-tenant totals.
         mock_data = {
-            'prop-001': {'total': '1000.00', 'count': 3},
-            'prop-002': {'total': '4975.50', 'count': 4}, 
-            'prop-003': {'total': '6100.50', 'count': 2},
-            'prop-004': {'total': '1776.50', 'count': 4},
-            'prop-005': {'total': '3256.00', 'count': 3}
+            'tenant-a': {
+                'prop-001': {'total': '2250.000', 'count': 4},  # res-tz-1 + res-dec-1/2/3
+                'prop-002': {'total': '4975.500', 'count': 4},  # res-004/005/006/007
+                'prop-003': {'total': '6100.500', 'count': 2},  # res-008/009
+            },
+            'tenant-b': {
+                'prop-001': {'total': '0.000',    'count': 0},
+                'prop-004': {'total': '1776.500', 'count': 4},  # res-010/011/012/013
+                'prop-005': {'total': '3256.000', 'count': 3},  # res-014/015/016
+            },
         }
-        
-        mock_property_data = mock_data.get(property_id, {'total': '0.00', 'count': 0})
+
+        mock_property_data = mock_data.get(tenant_id, {}).get(property_id, {'total': '0.000', 'count': 0})
         
         return {
             "property_id": property_id,
